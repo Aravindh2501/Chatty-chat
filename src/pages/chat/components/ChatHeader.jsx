@@ -7,8 +7,9 @@ import { DEFAULT_AVATAR } from "../../../content/data";
 import { useQueryClient } from "@tanstack/react-query";
 import moment from "moment";
 import UserProfileModal from "./UserProfileModal";
+import { MagnifyingGlassIcon,} from "@heroicons/react/24/outline";
 
-const ChatHeader = ({ SelectedUser }) => {
+const ChatHeader = ({ SelectedUser , onSearchOpen }) => {
   const navigate = useNavigate();
   const onlineUsers = useSocketStore((state) => state.onlineUsers);
   const currentUser = useUserStore((state) => state.currentUser);
@@ -64,6 +65,13 @@ const ChatHeader = ({ SelectedUser }) => {
         </div>
 
         <div className="flex items-center gap-2">
+           <button
+            onClick={onSearchOpen}
+            className="btn btn-ghost btn-sm btn-circle"
+            title="Search messages"
+          >
+            <MagnifyingGlassIcon className="w-5 h-5" />
+          </button>
           <button
             onClick={handleClose}
             className="btn btn-ghost btn-sm btn-circle"

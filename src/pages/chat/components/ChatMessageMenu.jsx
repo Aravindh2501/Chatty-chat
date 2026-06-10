@@ -4,6 +4,7 @@ import {
   ClipboardDocumentIcon,
   ArrowRightIcon,
   InformationCircleIcon,
+  FaceSmileIcon,
 } from "@heroicons/react/24/outline";
 import { useMessageActions } from "../../../hooks/useMessageActions";
 import { useUserStore } from "../../../store/userStore";
@@ -15,6 +16,7 @@ const ChatMessageMenu = ({
   message,
   SelectedUser,
   onReply,
+  onReact,
 }) => {
   const currentUser = useUserStore((state) => state.currentUser);
   const { handleDelete } = useMessageActions(SelectedUser);
@@ -63,6 +65,11 @@ const ChatMessageMenu = ({
     onClose();
   };
 
+  const handleReact = () => {
+    onReact?.();
+    onClose();
+  };
+
   return (
     <>
       <div className="fixed inset-0 z-40" onClick={onClose} />
@@ -77,6 +84,14 @@ const ChatMessageMenu = ({
           label="Reply"
           onClick={handleReply}
         />
+
+        {!message.isDeleted && !message._optimistic && (
+          <MenuItem
+            icon={<FaceSmileIcon className="w-4 h-4 text-base-content/60" />}
+            label="React"
+            onClick={handleReact}
+          />
+        )}
 
         {message.text && (
           <MenuItem

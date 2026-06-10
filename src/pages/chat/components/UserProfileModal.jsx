@@ -1,57 +1,28 @@
 import { useEffect, useState, useRef } from "react";
-import { XMarkIcon, PhotoIcon } from "@heroicons/react/24/outline";
-import { useQuery } from "@tanstack/react-query";
+import { XMarkIcon, PhotoIcon, NoSymbolIcon } from "@heroicons/react/24/outline";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import apiClient from "../../../api/apiInstance";
-import { GET_USER_PROFILE, GET_SHARED_MEDIA } from "../../../api/endPoints";
+import {
+  GET_USER_PROFILE,
+  GET_SHARED_MEDIA,
+  BLOCK_USER,
+  UNBLOCK_USER,
+} from "../../../api/endPoints";
 import { useSocketStore } from "../../../store/useSocketStore";
 import { useUserStore } from "../../../store/userStore";
 import { DEFAULT_AVATAR } from "../../../content/data";
+import { Lightbox } from "./MessageBubble";
 import moment from "moment";
-
-const Lightbox = ({ item, onClose }) => {
-  useEffect(() => {
-    const handler = (e) => { if (e.key === "Escape") onClose(); };
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
-  }, [onClose]);
-
-  return (
-    <div
-      className="fixed inset-0 z-[100] bg-black/90 flex items-center justify-center p-4"
-      onClick={onClose}
-    >
-      <button
-        className="absolute top-4 right-4 btn btn-circle btn-ghost text-white"
-        onClick={onClose}
-      >
-        <XMarkIcon className="w-6 h-6" />
-      </button>
-      <div onClick={(e) => e.stopPropagation()} className="max-w-4xl max-h-[90vh]">
-        {item.type === "video" ? (
-          <video
-            src={item.url}
-            controls
-            autoPlay
-            className="max-w-full max-h-[90vh] rounded-xl"
-          />
-        ) : (
-          <img
-            src={item.url}
-            alt="media"
-            className="max-w-full max-h-[90vh] rounded-xl object-contain"
-          />
-        )}
-      </div>
-    </div>
-  );
-};
+import toast from "react-hot-toast";
 
 const UserProfileModal = ({ userId, currentUserId, onClose }) => {
   const [lightboxItem, setLightboxItem] = useState(null);
-  const [activeTab, setActiveTab] = useState("media"); 
+  const [activeTab, setActiveTab] = useState("media");
   const modalRef = useRef(null);
   const onlineUsers = useSocketStore((state) => state.onlineUsers);
+  const qc = useQueryClient();
 
+  // Close on outside click
   useEffect(() => {
     const handler = (e) => {
       if (modalRef.current && !modalRef.current.contains(e.target)) onClose();
@@ -60,12 +31,14 @@ const UserProfileModal = ({ userId, currentUserId, onClose }) => {
     return () => document.removeEventListener("mousedown", handler);
   }, [onClose]);
 
+  // Close on Escape
   useEffect(() => {
     const handler = (e) => { if (e.key === "Escape") onClose(); };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
   }, [onClose]);
 
+  // Fetch profile
   const { data: profileData, isLoading: loadingProfile } = useQuery({
     queryKey: ["userProfile", userId],
     queryFn: async () => {
@@ -76,6 +49,22 @@ const UserProfileModal = ({ userId, currentUserId, onClose }) => {
     staleTime: 30000,
   });
 
+  // Fetch current user (to check blockedUsers list)
+  const { data: myProfile } = useQuery({
+    queryKey: ["userProfile", currentUserId],
+    queryFn: async () => {
+      const res = await apiClient.get(`${GET_USER_PROFILE}/${currentUserId}`);
+      return res.data.user;
+    },
+    enabled: !!currentUserId,
+    staleTime: 30000,
+  });
+
+  const isBlocked = myProfile?.blockedUsers?.some(
+    (id) => (typeof id === "object" ? id?._id?.toString() : id?.toString()) === userId?.toString()
+  );
+
+  // Fetch shared media
   const { data: mediaData, isLoading: loadingMedia } = useQuery({
     queryKey: ["sharedMedia", currentUserId, userId],
     queryFn: async () => {
@@ -88,10 +77,44 @@ const UserProfileModal = ({ userId, currentUserId, onClose }) => {
     staleTime: 30000,
   });
 
+  // Block mutation
+  const blockMutation = useMutation({
+    mutationFn: () =>
+      apiClient.post(BLOCK_USER, { blockerId: currentUserId, blockedId: userId }),
+    onSuccess: () => {
+      toast.success("User blocked");
+      qc.invalidateQueries({ queryKey: ["userProfile", currentUserId] });
+    },
+    onError: () => toast.error("Failed to block user"),
+  });
+
+  // Unblock mutation
+  const unblockMutation = useMutation({
+    mutationFn: () =>
+      apiClient.post(UNBLOCK_USER, { blockerId: currentUserId, blockedId: userId }),
+    onSuccess: () => {
+      toast.success("User unblocked");
+      qc.invalidateQueries({ queryKey: ["userProfile", currentUserId] });
+    },
+    onError: () => toast.error("Failed to unblock user"),
+  });
+
+  const handleBlockToggle = () => {
+    if (isBlocked) {
+      unblockMutation.mutate();
+    } else {
+      if (window.confirm(`Block ${profileData?.username}? They won't be able to message you.`)) {
+        blockMutation.mutate();
+      }
+    }
+  };
+
   const isOnline = onlineUsers.includes(userId?.toString());
   const media = mediaData?.media || [];
   const images = media.filter((m) => m.type === "image");
   const videos = media.filter((m) => m.type === "video");
+
+  const blockBusy = blockMutation.isPending || unblockMutation.isPending;
 
   return (
     <>
@@ -100,6 +123,7 @@ const UserProfileModal = ({ userId, currentUserId, onClose }) => {
           ref={modalRef}
           className="w-full max-w-sm bg-base-100 rounded-2xl border border-base-300 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
         >
+          {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-base-300 flex-shrink-0">
             <h2 className="font-bold text-base">Profile</h2>
             <button className="btn btn-ghost btn-sm btn-circle" onClick={onClose}>
@@ -116,6 +140,7 @@ const UserProfileModal = ({ userId, currentUserId, onClose }) => {
               </div>
             ) : (
               <>
+                {/* Avatar + name */}
                 <div className="flex flex-col items-center gap-2 pt-6 pb-4 px-4">
                   <div className="relative">
                     <img
@@ -148,56 +173,45 @@ const UserProfileModal = ({ userId, currentUserId, onClose }) => {
                       "{profileData.bio}"
                     </p>
                   ) : (
-                    <p className="text-xs text-center text-base-content/30 mt-1 italic">
-                      No bio yet
-                    </p>
+                    <p className="text-xs text-center text-base-content/30 mt-1 italic">No bio yet</p>
                   )}
                 </div>
 
+                {/* Info */}
                 <div className="mx-4 mb-4 bg-base-200 rounded-xl p-3 flex flex-col gap-2">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-base-content/40 w-16 flex-shrink-0">Email</span>
-                    <span className="text-xs font-medium truncate">{profileData?.email}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-base-content/40 w-16 flex-shrink-0">Joined</span>
-                    <span className="text-xs font-medium">
-                      {profileData?.createdAt
-                        ? moment(profileData.createdAt).format("MMM YYYY")
-                        : "—"}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-base-content/40 w-16 flex-shrink-0">Media</span>
-                    <span className="text-xs font-medium">
-                      {mediaData?.total ?? "—"} shared files
-                    </span>
-                  </div>
+                  <InfoRow label="Email" value={profileData?.email} />
+                  <InfoRow
+                    label="Joined"
+                    value={profileData?.createdAt ? moment(profileData.createdAt).format("MMM YYYY") : "—"}
+                  />
+                  <InfoRow label="Media" value={`${mediaData?.total ?? "—"} shared files`} />
                 </div>
 
+                {/* Block / Unblock button */}
+                <div className="mx-4 mb-4">
+                  <button
+                    className={`w-full btn btn-sm gap-2 ${
+                      isBlocked ? "btn-outline btn-success" : "btn-outline btn-error"
+                    }`}
+                    onClick={handleBlockToggle}
+                    disabled={blockBusy}
+                  >
+                    {blockBusy ? (
+                      <span className="loading loading-spinner loading-xs" />
+                    ) : (
+                      <NoSymbolIcon className="w-4 h-4" />
+                    )}
+                    {isBlocked ? "Unblock User" : "Block User"}
+                  </button>
+                </div>
+
+                {/* Tabs */}
                 <div className="flex border-b border-base-300 mx-4 mb-3">
-                  <button
-                    className={`flex-1 text-xs font-semibold py-2 border-b-2 transition-colors ${
-                      activeTab === "media"
-                        ? "border-primary text-primary"
-                        : "border-transparent text-base-content/40"
-                    }`}
-                    onClick={() => setActiveTab("media")}
-                  >
-                    Photos ({images.length})
-                  </button>
-                  <button
-                    className={`flex-1 text-xs font-semibold py-2 border-b-2 transition-colors ${
-                      activeTab === "videos"
-                        ? "border-primary text-primary"
-                        : "border-transparent text-base-content/40"
-                    }`}
-                    onClick={() => setActiveTab("videos")}
-                  >
-                    Videos ({videos.length})
-                  </button>
+                  <TabBtn label={`Photos (${images.length})`} active={activeTab === "media"} onClick={() => setActiveTab("media")} />
+                  <TabBtn label={`Videos (${videos.length})`} active={activeTab === "videos"} onClick={() => setActiveTab("videos")} />
                 </div>
 
+                {/* Media grid */}
                 <div className="px-4 pb-6">
                   {loadingMedia ? (
                     <div className="grid grid-cols-3 gap-1.5">
@@ -216,11 +230,7 @@ const UserProfileModal = ({ userId, currentUserId, onClose }) => {
                             className="aspect-square rounded-lg overflow-hidden cursor-pointer hover:opacity-80 transition-opacity bg-base-300"
                             onClick={() => setLightboxItem(item)}
                           >
-                            <img
-                              src={item.url}
-                              alt="shared"
-                              className="w-full h-full object-cover"
-                            />
+                            <img src={item.url} alt="shared" className="w-full h-full object-cover" />
                           </div>
                         ))}
                       </div>
@@ -235,10 +245,7 @@ const UserProfileModal = ({ userId, currentUserId, onClose }) => {
                           className="aspect-square rounded-lg overflow-hidden cursor-pointer hover:opacity-80 transition-opacity bg-base-300 relative"
                           onClick={() => setLightboxItem(item)}
                         >
-                          <video
-                            src={item.url}
-                            className="w-full h-full object-cover"
-                          />
+                          <video src={item.url} className="w-full h-full object-cover" />
                           <div className="absolute inset-0 flex items-center justify-center bg-black/30">
                             <PlayIcon />
                           </div>
@@ -254,11 +261,33 @@ const UserProfileModal = ({ userId, currentUserId, onClose }) => {
       </div>
 
       {lightboxItem && (
-        <Lightbox item={lightboxItem} onClose={() => setLightboxItem(null)} />
+        <Lightbox
+          src={lightboxItem.url}
+          type={lightboxItem.type}
+          onClose={() => setLightboxItem(null)}
+        />
       )}
     </>
   );
 };
+
+const InfoRow = ({ label, value }) => (
+  <div className="flex items-center gap-2">
+    <span className="text-xs text-base-content/40 w-16 flex-shrink-0">{label}</span>
+    <span className="text-xs font-medium truncate">{value}</span>
+  </div>
+);
+
+const TabBtn = ({ label, active, onClick }) => (
+  <button
+    className={`flex-1 text-xs font-semibold py-2 border-b-2 transition-colors ${
+      active ? "border-primary text-primary" : "border-transparent text-base-content/40"
+    }`}
+    onClick={onClick}
+  >
+    {label}
+  </button>
+);
 
 const EmptyMedia = ({ label }) => (
   <div className="flex flex-col items-center justify-center py-8 text-base-content/30 gap-2">

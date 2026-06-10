@@ -13,6 +13,7 @@ const Chat = () => {
   const [replyTo, setReplyTo] = useState(null);
 
   const { clearMessages, setActiveReceiver } = useSocketStore();
+const [searchOpen, setSearchOpen] = useState(false);
 
   useEffect(() => {
     clearMessages();
@@ -62,11 +63,13 @@ const Chat = () => {
         >
           {hasChat ? (
             <>
-              <ChatHeader SelectedUser={SelectedUser} />
+              <ChatHeader SelectedUser={SelectedUser} onSearchOpen={() => setSearchOpen(true)}/>
               <MessageContainer
                 SelectedUser={SelectedUser}
                 onReply={setReplyTo}
                 className="flex-1 min-h-0"
+                  onSearchClose={() => setSearchOpen(false)}
+                  searchOpen={searchOpen}
               />
               <ChatFooter
                 SelectedUser={SelectedUser}
